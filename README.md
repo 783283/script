@@ -6,7 +6,7 @@
 
 | 目录 | 内容 |
 |---|---|
-| [`vps-backup/`](vps-backup/) | VPS 备份套件：应用层导出 → 打包 → 加密 → 上传 Google Drive → 结果上报。含一键安装器和端到端测试 |
+| [`vps-backup/`](vps-backup/) | VPS 备份套件：应用层导出 → 打包 → 加密 → 上传 Google Drive → 结果上报。含一键安装器和两套自测 |
 
 ## vps-backup 快速开始
 
@@ -25,8 +25,17 @@ SSH 端口不是 22 时写成 `root@你的服务器:2222`。
 | 文件 | 讲什么 |
 |---|---|
 | [`vps-backup/install-README.md`](vps-backup/install-README.md) | 一键安装怎么用、装完东西在哪、报错怎么查 |
-| [`vps-backup/backup-v2-README.md`](vps-backup/backup-v2-README.md) | 脚本全集：全部配置项、六种通知方式、运行行为、恢复流程、退出码 |
+| [`vps-backup/README.md`](vps-backup/README.md) | 脚本全集：全部配置项、六种通知方式、运行行为、恢复流程、退出码 |
 | [`vps-backup/notify-notion-setup.md`](vps-backup/notify-notion-setup.md) | 把备份结果写进 Notion 的界面操作步骤与排错表 |
+
+### 自测
+
+两个测试都不依赖网络以外的服务，改动敢不敢提交，跑一遍就有答案：
+
+```bash
+bash vps-backup/test-install.sh         # 端到端演练，41 项断言
+bash vps-backup/test-notion-payload.sh  # Notion 上报的 JSON 结构，6 项断言
+```
 
 ## 注意
 

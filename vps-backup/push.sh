@@ -53,6 +53,12 @@ FILES=(
 RENAME=(
     "backup-v2-README.md:README.md"
 )
+# 仓库**根目录**下的文件：本地名:仓库根下的名字
+# 为什么单独列：vps-backup 之外的东西本地工作区没有副本，
+# 曾经因为漏了这条，根 README 里修好的死链一直没推上去，仓库里还挂着旧链接。
+ROOTMAP=(
+    "repo-root-README.md:README.md"
+)
 
 die()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 step() { printf '\n\033[1m═══ %s ═══\033[0m\n' "$1"; }
@@ -116,6 +122,9 @@ done
 for pair in "${RENAME[@]}"; do
     [[ -f "${SRC}/${pair%%:*}" ]] || die "白名单里的文件不存在：${pair%%:*}"
 done
+for pair in "${ROOTMAP[@]}"; do
+    [[ -f "${SRC}/${pair%%:*}" ]] || die "白名单里的文件不存在：${pair%%:*}"
+done
 # 明确确认凭证文件不会被拷进去
 [[ -f "${SRC}/backup.env" ]] && \
     printf '  \033[32m✓\033[0m backup.env 存在，但不在白名单里，不会被推送\n'
@@ -143,6 +152,10 @@ for pair in "${RENAME[@]}"; do
     cp "${SRC}/${pair%%:*}" "${DST}/${pair##*:}"
     printf '  → %s（本地叫 %s）\n' "${pair##*:}" "${pair%%:*}"
 done
+for pair in "${ROOTMAP[@]}"; do
+    cp "${SRC}/${pair%%:*}" "${TMP}/repo/${pair##*:}"
+    printf '  → %s（仓库根，本地叫 %s）\n' "${pair##*:}" "${pair%%:*}"
+done
 chmod 755 "${DST}"/*.sh
 
 cd "${TMP}/repo"
@@ -164,7 +177,7 @@ printf '  \033[32m✓\033[0m 已推送：%s\n' "$MSG"
 step "6. 重新克隆校验"
 # 不看 push 的输出就下结论——重新拉一份，逐个字节比对
 OK=0
-N=$(( ${#FILES[@]} + ${#RENAME[@]} ))
+N=$(( ${#FILES[@]} + ${#RENAME[@]} + ${#ROOTMAP[@]} ))
 git clone -q --branch "$BRANCH" "$REPO_URL" "${V}/repo" || die "校验用克隆失败"
 for f in "${FILES[@]}"; do
     cmp -s "${SRC}/${f}" "${V}/repo/${SUBDIR}/${f}" \
@@ -172,6 +185,10 @@ for f in "${FILES[@]}"; do
 done
 for pair in "${RENAME[@]}"; do
     cmp -s "${SRC}/${pair%%:*}" "${V}/repo/${SUBDIR}/${pair##*:}" \
+        || { printf '  \033[31m✗ 不一致 %s\033[0m\n' "${pair##*:}"; OK=1; }
+done
+for pair in "${ROOTMAP[@]}"; do
+    cmp -s "${SRC}/${pair%%:*}" "${V}/repo/${pair##*:}" \
         || { printf '  \033[31m✗ 不一致 %s\033[0m\n' "${pair##*:}"; OK=1; }
 done
 [[ "$OK" -eq 0 ]] || die "校验不通过：仓库内容与本地不一致"

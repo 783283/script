@@ -102,6 +102,7 @@ NOTION_TARGET_ID="1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d"
 NOTION_TITLE_PROP="名称"
 NOTION_STATUS_PROP="状态"
 NOTION_DATE_PROP="时间"
+NOTION_STATUS_TYPE="status"
 ```
 
 然后跑一次：
@@ -124,12 +125,25 @@ NOTION_DATE_PROP="时间"
 | 日志里出现 | 真实原因 | 怎么办 |
 |---|---|---|
 | `body.properties.状态X should be defined, instead was undefined` | 数据库里没有这个列名 | 检查列名，改配置里的 `NOTION_*_PROP` |
-| `Could not find database with ID: ...  Make sure the relevant pages and databases are shared with your integration` | **integration 没连上这个数据库** | 回到步骤 3 |
+| `Could not find database with ID: ...  Make sure the relevant pages and databases are shared with your integration` | 两种可能：**integration 没连上这个数据库**（更常见），或 **ID 本身就是错的** | 先回步骤 3 确认已连接；已连接还报这个，说明 ID 抄错了。注意报错里的 ID 就是脚本发出去的那个，直接比对即可 |
 | `API token is invalid` | token 抄错了，或没复制完整 | 重新复制 Secret |
 | `NOTION_TOKEN 格式不对，应以 ntn_ 或 secret_ 开头` | 填成了别的东西（比如 URL 或数据库 ID） | 检查配置 |
+| `状态 is expected to be status.` | 「状态」列的真实属性类型和 `NOTION_STATUS_TYPE` 填的不一致 | 按报错里 `expected to be` 后面那个类型改配置（`status` / `select` / `rich_text`） |
+| `Invalid status option. Status option "成功" does not exist` | 该列是 `status` 类型，而 `status` 的选项**不能即写即建** | 先在 Notion 里手工给这一列加上「成功」「失败」两个选项；或把 `NOTION_STATUS_TYPE` 改成 `select`（`select` 会自动建选项） |
 | `Notion 请求失败（curl 退出码 N）` | 网络或 DNS 不通 | 检查 VPS 出网；若在国内机器上，可能需要走代理 |
 
-这五种情况的报错原文都实测过，不是凭印象写的。
+这几种情况的报错原文都实测过，不是凭印象写的。
+
+### 两个实测踩过的坑
+
+**`status` 与 `select` 不是一回事。** 中文界面新建的「状态」列默认是 Notion 原生的 `status` 类型，
+它写入时的 JSON 结构是 `{"status":{"name":"..."}}`；单选的 `select` 列则是 `{"select":{"name":"..."}}`。
+两者发错结构，报错就是上面那条 `expected to be`。写 `status` 时选项必须已存在，写 `select` 时不存在会自动创建——
+想要"发什么值都能记上"，`select` 反而更省心。
+
+**改 Notion 数据库的选项列表要用 PATCH `/v1/databases`，而它是整表替换，不是追加。**
+曾经想"补两个选项"，只发了 `{"options":[成功,失败]}`，结果原来那三个选项被一并抹掉了。
+要用这个接口，必须把**全部**选项按最终想要的顺序一次性发全。
 
 ---
 

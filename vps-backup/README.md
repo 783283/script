@@ -37,6 +37,7 @@
 | `deploy.sh` | 在你自己的电脑上跑，一键完成「授权 + 上传 + 安装」 |
 | `backup.env.example` | 配置模板，手工改配置时对照用 |
 | `test-install.sh` | 端到端演练，可在 macOS 上完整验证整条链路 |
+| `test-notion-payload.sh` | 单独验证 Notion 上报的 JSON 结构，不需要网络和 Notion 账号 |
 | `notify-notion-setup.md` | Notion 通知的界面操作步骤与排错表 |
 | `install-README.md` | 一键安装的说明与排错表 |
 
@@ -267,8 +268,9 @@ VPS 上零安装，curl 自带支持。
 | `NOTION_TARGET_ID` | 目标 ID，从链接里复制那 32 位字符串 |
 | `NOTION_VERSION` | 固定 `2022-06-28`，别动 |
 | `NOTION_TITLE_PROP` / `NOTION_STATUS_PROP` / `NOTION_DATE_PROP` | **必须与 Notion 里的列名完全一致**，含大小写和空格。默认 `名称` / `状态` / `时间` |
+| `NOTION_STATUS_TYPE` | 「状态」列的属性类型：`status`（默认）/ `select` / `rich_text`。填错会报 `xxx is expected to be yyy`。注意 `status` 类型的选项不能即写即建，列里得先有「成功」「失败」；图省事可以改成 `select` |
 
-详细步骤见 `notify-notion-setup.md`。**最容易卡住的一步**：新建的 integration 是空的，必须在 Notion 页面里点 `···` → 连接 → 选中它，否则永远报 `object_not_found`。
+详细步骤见 `notify-notion-setup.md`。**最容易卡住的一步**：新建的 integration 是空的，必须在 Notion 页面里点 `···` → 连接 → 选中它，否则永远报 `object_not_found`。注意这个报错也可能是 `NOTION_TARGET_ID` 填错了——报错里会把脚本发出去的 ID 原样打印出来，比对一下就能分清。
 
 ### `agentmail` — 调 AgentMail REST API
 
@@ -381,9 +383,15 @@ tar xzf backup.tgz -C /tmp/x   # 或先解到临时目录检查
 | 上传失败 | 令牌失效 / Drive API 未启用 / 网络受限 | `rclone lsd gdrive:` 手工复查 |
 | 远端清理很慢 | 驱动要遍历目录树，正常现象 | 大目录树时可能几十秒到几分钟 |
 | 通知没收到 | 网络、token、代理 | 脚本会明确报错；注意 `NOTIFY_NO_PROXY` 的坑 |
-| Notion 报 `object_not_found` | **90% 是数据库没「连接」给 integration** | 在 Notion 页面点 `···` → 连接 → 选它 |
+| Notion 报 `object_not_found` | **多半是数据库没「连接」给 integration**，其次是 `NOTION_TARGET_ID` 抄错了 | 在 Notion 页面点 `···` → 连接 → 选它；报错里会把脚本发出去的 ID 原样打印，可直接比对 |
+| Notion 报 `xxx is expected to be yyy` | `NOTION_STATUS_TYPE` 和「状态」列的真实类型不一致 | 按报错里 `expected to be` 后面的类型改配置 |
+| Notion 报 `Invalid status option` | 「状态」列是 `status` 类型，而该值不是它的预设选项。`status` 的选项**不能即写即建** | 先在 Notion 里给该列加上「成功」「失败」；或把 `NOTION_STATUS_TYPE` 改成 `select`，`select` 会自动建选项 |
 | 改了保留天数但旧文件没删 | 清理按文件 mtime 算，且只在备份成功后执行 | 下次备份成功时会清 |
 | `另一个备份进程正在运行` | 上一轮还没跑完 | 正常保护，等它跑完 |
+
+改完上报相关的代码，先跑 `bash test-notion-payload.sh`：它用本地替身接口收请求，
+把三种状态列类型的 JSON 结构、以及报错提示是否命中人话全部断言一遍，不碰网络也不碰真实的 Notion。
+改完安装流程，跑 `bash test-install.sh`（41 项断言）。
 
 ---
 

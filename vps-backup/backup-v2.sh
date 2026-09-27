@@ -98,6 +98,13 @@ NOTION_VERSION="${NOTION_VERSION:-2022-06-28}"
 NOTION_TITLE_PROP="${NOTION_TITLE_PROP:-名称}"
 NOTION_STATUS_PROP="${NOTION_STATUS_PROP:-状态}"
 NOTION_DATE_PROP="${NOTION_DATE_PROP:-时间}"
+# 「状态」这一列的**属性类型**，决定 JSON 用什么结构写：
+#   status    Notion 的原生状态属性（中文界面默认的「状态」列就是这种）
+#             它的选项值不能即写即建，写一个不存在的值会被 400 拒绝
+#   select    单选属性。选项值不存在时 Notion 会自动创建
+#   rich_text 纯文本属性，什么值都收
+# 类型写错时 Notion 的报错是 "xxx is expected to be yyy"，据此改这里即可。
+NOTION_STATUS_TYPE="${NOTION_STATUS_TYPE:-status}"
 # API 基地址，仅测试时改成 mock 地址，平时不要动
 NOTION_API_BASE="${NOTION_API_BASE:-https://api.notion.com}"
 
@@ -404,10 +411,19 @@ do_tar() {
     fi
 
     CURRENT_STEP="打包"
-    if ! tar -zcPf "${LOCALDIR}/${SHORT_HOST}_${BACKUPDATE}.tgz" "${targets[@]}"; then
+    # tar 退出码语义：0 = 成功；1 = 读取时有文件发生变化（对正在运行的服务属正常现象，
+    # 归档依然可用）；2 及以上才是致命错误。
+    # 因此这里不能写成"非零即失败"——备份运行中的服务（日志、认证文件持续被写入）
+    # 必然返回 1，那样会把成功的备份误报为失败。
+    local tar_rc=0
+    tar -zcPf "${LOCALDIR}/${SHORT_HOST}_${BACKUPDATE}.tgz" "${targets[@]}" || tar_rc=$?
+    if [[ ${tar_rc} -gt 1 ]]; then
         STEP_TAR="失败"
-        fail "tar 打包失败"
+        fail "tar 打包失败（退出码 ${tar_rc}）"
         return 1
+    fi
+    if [[ ${tar_rc} -eq 1 ]]; then
+        log "提示：打包期间有文件发生变化（tar 退出码 1），归档已正常生成"
     fi
 
     TARFILE="${LOCALDIR}/${SHORT_HOST}_${BACKUPDATE}.tgz"
@@ -768,12 +784,35 @@ notify_notion() {
             -H 'Content-Type: application/json' \
             -d "{\"children\":${children}}")" || rc=$?
     else
-        payload="$(printf '{"parent":{"database_id":"%s"},"properties":{"%s":{"title":[{"text":{"content":"%s"}}]},"%s":{"select":{"name":"%s"}},"%s":{"date":{"start":"%s"}}},"children":%s}' \
+        # 「状态」列有三种可能的属性类型，JSON 结构各不相同：
+        #   status    -> {"status":{"name":"..."}}     选项必须已存在
+        #   select    -> {"select":{"name":"..."}}     Notion 会自动建选项
+        #   rich_text -> {"rich_text":[{"text":...}]}  什么值都收
+        # 发错结构时 Notion 的报错形如「状态 is expected to be status.」，
+        # 所以类型由 NOTION_STATUS_TYPE 显式指定，别去猜。
+        local status_json
+        case "${NOTION_STATUS_TYPE}" in
+            status)
+                status_json="$(printf '{"status":{"name":"%s"}}' "$(json_escape "${STATUS_CN}")")"
+                ;;
+            select)
+                status_json="$(printf '{"select":{"name":"%s"}}' "$(json_escape "${STATUS_CN}")")"
+                ;;
+            rich_text)
+                status_json="$(printf '{"rich_text":[{"text":{"content":"%s"}}]}' "$(json_escape "${STATUS_CN}")")"
+                ;;
+            *)
+                fail "NOTION_STATUS_TYPE 取值非法：${NOTION_STATUS_TYPE}（应为 status / select / rich_text）"
+                return 1
+                ;;
+        esac
+
+        payload="$(printf '{"parent":{"database_id":"%s"},"properties":{"%s":{"title":[{"text":{"content":"%s"}}]},"%s":%s,"%s":{"date":{"start":"%s"}}},"children":%s}' \
             "${NOTION_TARGET_ID}" \
             "$(json_escape "${NOTION_TITLE_PROP}")" \
             "$(json_escape "${subject}")" \
             "$(json_escape "${NOTION_STATUS_PROP}")" \
-            "$(json_escape "${STATUS_CN}")" \
+            "${status_json}" \
             "$(json_escape "${NOTION_DATE_PROP}")" \
             "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
             "${children}")"
@@ -796,6 +835,15 @@ notify_notion() {
     # 用 -f 丢掉了 body，就只剩一句没头没尾的 HTTP 400。
     if printf '%s' "${response}" | grep -q '"object"[[:space:]]*:[[:space:]]*"error"'; then
         fail "Notion 拒绝写入：$(printf '%s' "${response}" | tr -d '\n' | head -c 400)"
+        # 两类错误几乎占了 Notion 写入失败的全部，且报错本身都很难懂，
+        # 这里补一句人话，省得再去翻文档。
+        if printf '%s' "${response}" | grep -q 'is expected to be'; then
+            fail "提示：上面的列类型与 NOTION_STATUS_TYPE=${NOTION_STATUS_TYPE} 不符，按报错里 expected to be 后面那个类型改配置"
+        elif printf '%s' "${response}" | grep -q 'Invalid status option'; then
+            fail "提示：status 类型的选项不能即写即建，需先在 Notion 里给该列加上「${STATUS_CN}」这个选项"
+        elif printf '%s' "${response}" | grep -q 'object_not_found\|Could not find'; then
+            fail "提示：target 不存在，多半是没在 Notion 页面右上角把该库「连接」给这个 integration"
+        fi
         return 1
     fi
 
